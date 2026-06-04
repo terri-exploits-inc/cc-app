@@ -10,13 +10,39 @@ const supabaseUrl = 'https://kscfzslfeetgxhtwwqjx.supabase.co';
 const supabaseKey = 'sb_publishable_5vTtJ0MCGJWu1i2-JSSeJg_pIQeKWLx';
 const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
-// Load State from LocalStorage
-function loadState() {
+// Load State from LocalStorage and Supabase
+async function loadState() {
+    // 1. First, load from localStorage so UI is fast
     const saved = localStorage.getItem('cc_app_state');
     if (saved) {
         state = JSON.parse(saved);
+        updateUI();
     }
-    updateUI();
+
+    // 2. Then, if we have an account, poll/load the latest state from Supabase
+    if (state.account && state.account.id) {
+        try {
+            const { data, error } = await supabaseClient
+                .from('app_state')
+                .select('state_data')
+                .eq('account_id', state.account.id)
+                .single();
+            
+            if (error && error.code !== 'PGRST116') { // Ignore "no rows returned" error
+                console.warn('Failed to load state from Supabase:', error.message);
+            } else if (data && data.state_data) {
+                state = data.state_data;
+                // Update local storage with the latest data from cloud
+                localStorage.setItem('cc_app_state', JSON.stringify(state));
+                updateUI();
+                console.log('Successfully loaded latest state from Supabase.');
+            }
+        } catch (err) {
+            console.error('Error fetching state from Supabase:', err);
+        }
+    } else {
+        updateUI();
+    }
 }
 
 async function saveState() {
