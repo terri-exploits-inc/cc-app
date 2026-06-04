@@ -5,6 +5,11 @@ let state = {
     communityVotes: [] // [ goldPerUsdNumber ]
 };
 
+// Supabase Initialization
+const supabaseUrl = 'https://kscfzslfeetgxhtwwqjx.supabase.co';
+const supabaseKey = 'sb_publishable_5vTtJ0MCGJWu1i2-JSSeJg_pIQeKWLx';
+const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
 // Load State from LocalStorage
 function loadState() {
     const saved = localStorage.getItem('cc_app_state');
@@ -14,9 +19,29 @@ function loadState() {
     updateUI();
 }
 
-function saveState() {
+async function saveState() {
     localStorage.setItem('cc_app_state', JSON.stringify(state));
     updateUI();
+
+    // Auto-save to Supabase
+    if (state.account && state.account.id) {
+        try {
+            const { error } = await supabase
+                .from('app_state')
+                .upsert({ 
+                    account_id: state.account.id, 
+                    state_data: state 
+                }, { onConflict: 'account_id' });
+            
+            if (error) {
+                console.warn('Supabase auto-save warning (Ensure table "app_state" exists with "account_id" and "state_data" columns):', error.message);
+            } else {
+                console.log('Auto-saved to Supabase successfully.');
+            }
+        } catch (err) {
+            console.error('Failed to auto-save to Supabase:', err);
+        }
+    }
 }
 
 // Navigation Logic
@@ -194,8 +219,9 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
     // Mocking the Territorial.io Game API fetch
     // ANY AMOUNT Gold = 1 Custom Currency
     try {
-        // Attempt actual fetch (likely to fail due to CORS in a browser, but we write it as requested)
-        const response = await fetch('https://territorial.io/wiki/api', {
+        // We use a CORS proxy to bypass browser restrictions and prevent console errors
+        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://territorial.io/wiki/api');
+        const response = await fetch(proxyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -204,10 +230,6 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
                 target: apiTarget,
                 gold: goldAmount
             })
-        }).catch(err => {
-            // If CORS fails, we simulate success for the static app demo purposes
-            console.warn('API fetch failed (likely CORS), simulating success for demo.', err);
-            return { ok: true };
         });
 
         if (response.ok) {
