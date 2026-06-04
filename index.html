@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Currency App</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <h2>🪙 CC App</h2>
+            </div>
+            
+            <!-- User Profile Snippet -->
+            <div id="navProfile" class="nav-profile hidden">
+                <img id="navAvatar" src="" alt="Avatar">
+                <div class="nav-profile-info">
+                    <p id="navName" class="nav-name"></p>
+                    <p id="navId" class="nav-id"></p>
+                </div>
+            </div>
+
+            <nav>
+                <button class="nav-btn active" data-target="accountSection">Account</button>
+                <button class="nav-btn" data-target="currencySection">Create Currency</button>
+                <button class="nav-btn" data-target="mintSection">Minting</button>
+                <button class="nav-btn" data-target="valuationSection">Valuation</button>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content">
+            <!-- Account Section -->
+            <section id="accountSection" class="section active">
+                <header>
+                    <h1>Create Account</h1>
+                    <p>Setup your profile to start creating and minting currencies.</p>
+                </header>
+                <div class="card">
+                    <form id="accountForm">
+                        <div class="form-group">
+                            <label for="accName">Name (Required)</label>
+                            <input type="text" id="accName" required placeholder="Enter your name">
+                        </div>
+                        <div class="form-group">
+                            <label for="accAvatar">Profile Picture (Required)</label>
+                            <input type="file" id="accAvatar" accept="image/*" required>
+                            <div id="avatarPreview" class="image-preview"></div>
+                        </div>
+                        <button type="submit" class="btn-primary">Create Account</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Currency Creation Section -->
+            <section id="currencySection" class="section">
+                <header>
+                    <h1>Create a Currency</h1>
+                    <p>Launch your own custom currency locally.</p>
+                </header>
+                <div class="card">
+                    <form id="currencyForm">
+                        <div class="form-group">
+                            <label for="currName">Currency Name (Required)</label>
+                            <input type="text" id="currName" required placeholder="e.g., Super Coin">
+                            <small>Words will be auto-capitalized.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="currId">Currency ID (Auto-Generated, max 4 chars)</label>
+                            <input type="text" id="currId" readonly placeholder="Auto-generated">
+                        </div>
+                        <div class="form-group">
+                            <label for="currIcon">Currency Icon (Required)</label>
+                            <input type="file" id="currIcon" accept="image/*" required>
+                            <div id="iconPreview" class="image-preview"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="currAnimIcon">Animated Currency Icon "Acquired" (Optional)</label>
+                            <input type="file" id="currAnimIcon" accept="image/gif,video/*">
+                            <div id="animIconPreview" class="image-preview"></div>
+                        </div>
+                        <button type="submit" class="btn-primary" id="createCurrencyBtn" disabled>Create Currency</button>
+                        <p id="currAccountWarning" class="warning-text">You must create an account first.</p>
+                    </form>
+                </div>
+                
+                <div class="list-container">
+                    <h3>Your Currencies</h3>
+                    <div id="currenciesList" class="grid-list"></div>
+                </div>
+            </section>
+
+            <!-- Minting Section -->
+            <section id="mintSection" class="section">
+                <header>
+                    <h1>Mint Custom Currency</h1>
+                    <p>Use Territorial.io Gold to mint your custom currency.</p>
+                </header>
+                <div class="card">
+                    <form id="mintForm">
+                        <div class="form-group">
+                            <label for="mintCurrencySelect">Select Currency</label>
+                            <select id="mintCurrencySelect" required>
+                                <option value="" disabled selected>Select a currency...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="api-credentials-box">
+                            <h4>Territorial.io API Credentials</h4>
+                            <div class="form-group">
+                                <label for="apiAccount">Account Name</label>
+                                <input type="text" id="apiAccount" value="NMBRR" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="apiPassword">Password</label>
+                                <input type="password" id="apiPassword" value="ky3lHC6v959Ry3P" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="apiTarget">Target</label>
+                                <input type="text" id="apiTarget" value="yeGod" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="mintGoldAmount">Gold Amount to Spend</label>
+                            <input type="number" id="mintGoldAmount" value="10" min="1" required>
+                            <small>ANY AMOUNT Gold = 1 Custom Currency</small>
+                        </div>
+
+                        <button type="submit" class="btn-primary" id="mintBtn" disabled>Mint Currency</button>
+                        <p id="mintWarning" class="warning-text">You must create an account and a currency first.</p>
+                        <div id="mintStatus" class="status-msg"></div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Valuation Section -->
+            <section id="valuationSection" class="section">
+                <header>
+                    <h1>Currency Valuation</h1>
+                    <p>Community-driven valuation and statistics.</p>
+                </header>
+                
+                <div class="grid-2">
+                    <div class="card">
+                        <h3>Community Gold/USD Valuation</h3>
+                        <p class="desc">Enter how much Gold you think 1 USD is worth.</p>
+                        <form id="voteForm">
+                            <div class="form-group">
+                                <label for="goldPerUsd">Gold per 1 USD</label>
+                                <input type="number" id="goldPerUsd" min="1" required placeholder="e.g., 100">
+                            </div>
+                            <button type="submit" class="btn-primary">Submit Vote</button>
+                        </form>
+                        <div class="stats-box mt-4">
+                            <h4>Current Average Value</h4>
+                            <p class="big-stat"><span id="avgGoldPerUsd">0</span> Gold = 1 USD</p>
+                            <small>Based on <span id="voteCount">0</span> community votes.</small>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>Custom Currency Value</h3>
+                        <p class="desc">Determined by the average gold amount spent by the creator per 1 custom currency.</p>
+                        <div class="form-group">
+                            <label for="valCurrencySelect">Select Currency to Analyze</label>
+                            <select id="valCurrencySelect">
+                                <option value="" disabled selected>Select a currency...</option>
+                            </select>
+                        </div>
+                        
+                        <div id="currencyStats" class="stats-box mt-4 hidden">
+                            <div class="stat-row">
+                                <span>Total Minted:</span>
+                                <strong id="statTotalMinted">0</strong>
+                            </div>
+                            <div class="stat-row">
+                                <span>Total Gold Spent:</span>
+                                <strong id="statTotalGold">0</strong>
+                            </div>
+                            <hr>
+                            <div class="stat-row highlight">
+                                <span>Value (in Gold):</span>
+                                <strong id="statGoldValue">0 Gold</strong>
+                            </div>
+                            <div class="stat-row highlight-usd">
+                                <span>Value (in USD):</span>
+                                <strong id="statUsdValue">$0.00</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal for "Acquired" Animation -->
+    <div id="acquiredModal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="acquiredTitle">Currency Acquired!</h2>
+            <img id="acquiredIcon" src="" alt="Acquired Icon">
+            <button class="btn-primary" onclick="closeAcquiredModal()">Awesome</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
