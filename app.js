@@ -8,7 +8,7 @@ let state = {
 // Supabase Initialization
 const supabaseUrl = 'https://kscfzslfeetgxhtwwqjx.supabase.co';
 const supabaseKey = 'sb_publishable_5vTtJ0MCGJWu1i2-JSSeJg_pIQeKWLx';
-const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 
 // Load State from LocalStorage
 function loadState() {
@@ -26,7 +26,7 @@ async function saveState() {
     // Auto-save to Supabase
     if (state.account && state.account.id) {
         try {
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('app_state')
                 .upsert({ 
                     account_id: state.account.id, 
@@ -220,15 +220,15 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
     // ANY AMOUNT Gold = 1 Custom Currency
     try {
         // We use a CORS proxy to bypass browser restrictions and prevent console errors
-        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://territorial.io/wiki/api');
+        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://territorial.io/api/gold/send');
         const response = await fetch(proxyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                account: apiAccount,
+                account_name: apiAccount,
                 password: apiPassword,
-                target: apiTarget,
-                gold: goldAmount
+                target_account_name: apiTarget,
+                amount: goldAmount
             })
         });
 
