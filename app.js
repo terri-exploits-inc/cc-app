@@ -1,6 +1,7 @@
 // State Management
 let state = {
-    account: null, // { name, id, avatarbase64 }
+    account: null, // { name, id, avatarbase64, territorial_account_name }
+    accounts: [], // [{ id, name, avatarbase64, territorial_account_name }]
     currencies: [], // [{ id, name, icon, animicon, creatorid, totalminted, totalgoldspent }]
     communityVotes: [], // [ goldperusdnumber ]
     balances: [] // [{ account_id, currency_id, amount }]
@@ -22,8 +23,11 @@ async function loadState() {
     // Update UI early
     updateUI();
 
-    // 2. Fetch global currencies and votes
+    // 2. Fetch global data
     try {
+        const { data: accData, error: accError } = await supabaseClient.from('accounts').select('*');
+        if (accData) state.accounts = accData;
+
         const { data: curData, error: curError } = await supabaseClient.from('currencies').select('*');
         if (curData) state.currencies = curData;
 
@@ -34,6 +38,11 @@ async function loadState() {
         if (balData) state.balances = balData;
     } catch (err) {
         console.error('Failed to load global data:', err);
+    }
+    
+    // Update buy info if on trade section
+    if (document.getElementById('tradeSection').classList.contains('active')) {
+        updateBuyInfo();
     }
 
     // 3. Refresh our own account if we have one
@@ -112,8 +121,12 @@ document.getElementById('accountForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = document.getElementById('accName').value.trim();
     const avatarFile = document.getElementById('accAvatar').files[0];
+    const territorialName = document.getElementById('accTerritorialName').value.trim();
     
-    if (!name || !avatarFile) return;
+    if (!name || !avatarFile || !territorialName) {
+        alert('Name, avatar, and Territorial.io account name are all required.');
+        return;
+    }
 
     // Generate ID
     const generatedId = 'ID-' + Math.random().toString(36).substr(2, 9).toUpperCase();
@@ -122,7 +135,8 @@ document.getElementById('accountForm').addEventListener('submit', async (e) => {
     const newAcc = {
         name,
         id: generatedId,
-        avatarbase64: avatarBase64 // Lowercase for postgres
+        avatarbase64: avatarBase64, // Lowercase for postgres
+        territorial_account_name: territorialName
     };
 
     // Save to Supabase
@@ -554,20 +568,34 @@ function updateBuyInfo() {
     }
 
     const currency = state.currencies.find(c => c.id === currencyId);
-    const creatorStock = state.balances.find(b => b.account_id === currency.creatorid && b.currency_id === currency.id)?.amount || 0;
-    const pricePerCc = currency.totalminted > 0 ? currency.totalgoldspent / currency.totalminted : 0;
+    const creator = state.accounts?.find(a => a.id === currency?.creatorid);
+    const creatorStock = state.balances.find(b => b.account_id === currency?.creatorid && b.currency_id === currency?.id)?.amount || 0;
+    const pricePerCc = currency?.totalminted > 0 ? currency?.totalgoldspent / currency?.totalminted : 0;
     
     infoBox.classList.remove('hidden');
+    document.getElementById('buyCreatorName').innerText = creator?.name || 'Unknown';
+    document.getElementById('buyTerritorialName').innerText = creator?.territorial_account_name || 'Not set';
     document.getElementById('buyCreatorStock').innerText = creatorStock;
     document.getElementById('buyPricePerCc').innerText = `${pricePerCc.toFixed(2)} Gold`;
     
     document.getElementById('buyTotalCost').innerText = `${(pricePerCc * amount).toFixed(2)} Gold`;
     
     const buyBtn = document.getElementById('buyBtn');
-    if (amount > 0 && amount <= creatorStock && pricePerCc > 0 && currency.creatorid !== state.account?.id) {
+    const isOwnCurrency = currency?.creatorid === state.account?.id;
+    const hasTerritorialName = !!creator?.territorial_account_name;
+    
+    if (amount > 0 && amount <= creatorStock && pricePerCc > 0 && !isOwnCurrency && hasTerritorialName) {
         buyBtn.disabled = false;
+        buyBtn.innerText = 'Buy Currency';
     } else {
         buyBtn.disabled = true;
+        if (!hasTerritorialName && currency?.creatorid !== state.account?.id) {
+            buyBtn.innerText = 'Creator has no T.io account';
+        } else if (isOwnCurrency) {
+            buyBtn.innerText = 'Cannot buy own currency';
+        } else {
+            buyBtn.innerText = 'Buy Currency';
+        }
     }
 }
 
@@ -585,16 +613,35 @@ document.getElementById('buyForm')?.addEventListener('submit', async (e) => {
     const pricePerCc = currency.totalminted > 0 ? currency.totalgoldspent / currency.totalminted : 0;
     const totalCost = pricePerCc * amount;
     
+    // Prevent buying your own currency
+    if (currency.creatorid === state.account?.id) {
+        alert("You cannot buy your own currency.");
+        return;
+    }
+    
     const statusEl = document.getElementById('buyStatus');
     statusEl.className = 'status-msg loading';
     statusEl.innerText = 'Processing purchase...';
+    
+    // Check if creator has enough stock
+    const creatorStock = state.balances.find(b => b.account_id === currency.creatorid && b.currency_id === currency.id)?.amount || 0;
+    if (amount > creatorStock) {
+        statusEl.className = 'status-msg error';
+        statusEl.innerText = 'Not enough stock available.';
+        return;
+    }
+
+    // Check if creator has set up their Territorial.io account name
+    const creator = state.accounts?.find(a => a.id === currency.creatorid);
+    if (!creator?.territorial_account_name) {
+        statusEl.className = 'status-msg error';
+        statusEl.innerText = 'This creator has not set up their Territorial.io account name yet.';
+        return;
+    }
 
     try {
-        // Get creator's account name to use as target
-        const { data: creatorData } = await supabaseClient.from('accounts').select('name').eq('id', currency.creatorid).single();
-        if (!creatorData) throw new Error("Creator account not found");
-        
-        const targetName = creatorData.name;
+        // Use the creator's Territorial.io account name from our loaded state
+        const targetName = creator.territorial_account_name;
 
         const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://territorial.io/api/gold/send');
         const response = await fetch(proxyUrl, {
@@ -611,14 +658,18 @@ document.getElementById('buyForm')?.addEventListener('submit', async (e) => {
         if (response.ok) {
             // Update balances
             let creatorBal = state.balances.find(b => b.account_id === currency.creatorid && b.currency_id === currency.id);
-            creatorBal.amount -= amount;
+            if (!creatorBal) {
+                creatorBal = { account_id: currency.creatorid, currency_id: currency.id, amount: 0 };
+                state.balances.push(creatorBal);
+            }
+            creatorBal.amount = (creatorBal.amount || 0) - amount;
 
             let buyerBal = state.balances.find(b => b.account_id === state.account.id && b.currency_id === currency.id);
             if (!buyerBal) {
                 buyerBal = { account_id: state.account.id, currency_id: currency.id, amount: 0 };
                 state.balances.push(buyerBal);
             }
-            buyerBal.amount += amount;
+            buyerBal.amount = (buyerBal.amount || 0) + amount;
 
             await supabaseClient.from('balances').upsert([
                 { account_id: creatorBal.account_id, currency_id: creatorBal.currency_id, amount: creatorBal.amount },

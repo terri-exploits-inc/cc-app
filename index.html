@@ -56,6 +56,11 @@
                                 <input type="file" id="accAvatar" accept="image/*" required>
                                 <div id="avatarPreview" class="image-preview"></div>
                             </div>
+                            <div class="form-group">
+                                <label for="accTerritorialName">Territorial.io Account Name (Required for selling)</label>
+                                <input type="text" id="accTerritorialName" required placeholder="Your Territorial.io username">
+                                <small class="desc">This is the account name buyers will send gold to when purchasing your currency.</small>
+                            </div>
                             <button type="submit" class="btn-primary">Create Account</button>
                         </form>
                     </div>
@@ -176,6 +181,8 @@
                             </div>
                             
                             <div id="buyInfo" class="stats-box mt-2 hidden">
+                                <div class="stat-row"><span>Creator:</span> <strong id="buyCreatorName">-</strong></div>
+                                <div class="stat-row"><span>Territorial.io:</span> <strong id="buyTerritorialName">-</strong></div>
                                 <div class="stat-row"><span>Creator Stock:</span> <strong id="buyCreatorStock">0</strong></div>
                                 <div class="stat-row"><span>Price (Gold per 1 CC):</span> <strong id="buyPricePerCc">0 Gold</strong></div>
                             </div>
