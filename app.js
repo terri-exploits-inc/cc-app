@@ -5,10 +5,6 @@ let state = {
     communityVotes: [] // [ goldPerUsdNumber ]
 };
 
-let publicCurrencies = [];
-let publicVotes = [];
-let allAppStates = [];
-
 // Supabase Initialization
 const supabaseUrl = 'https://kscfzslfeetgxhtwwqjx.supabase.co';
 const supabaseKey = 'sb_publishable_5vTtJ0MCGJWu1i2-JSSeJg_pIQeKWLx';
@@ -17,66 +13,44 @@ const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
 // Load State from LocalStorage and Supabase
 async function loadState() {
     // 1. First, load from localStorage so UI is fast
-    const saved = localStorage.getItem('cc_app_state');
-    if (saved) {
-        state = JSON.parse(saved);
-        publicCurrencies = [...state.currencies];
-        publicVotes = [...state.communityVotes];
-        updateUI();
+    const savedAccount = localStorage.getItem('cc_app_account');
+    if (savedAccount) {
+        state.account = JSON.parse(savedAccount);
     }
 
-    // 2. Fetch ALL states from Supabase to aggregate public data
-    try {
-        const { data, error } = await supabaseClient.from('app_state').select('*');
-        if (!error && data) {
-            allAppStates = data;
-            
-            // Reconstruct public data
-            publicCurrencies = [];
-            publicVotes = [];
-            data.forEach(row => {
-                if (row.state_data.currencies) publicCurrencies.push(...row.state_data.currencies);
-                if (row.state_data.communityVotes) publicVotes.push(...row.state_data.communityVotes);
-                
-                // Also update local state if this is our account
-                if (state.account && row.account_id === state.account.id) {
-                    state = row.state_data;
-                    localStorage.setItem('cc_app_state', JSON.stringify(state));
-                }
-            });
-            updateUI();
-            console.log('Successfully loaded global state from Supabase.');
-        } else if (error) {
-            console.warn('Failed to load global state:', error.message);
-        }
-    } catch (err) {
-        console.error('Error fetching state from Supabase:', err);
-    }
-}
-
-async function saveState() {
-    localStorage.setItem('cc_app_state', JSON.stringify(state));
+    // Update UI early
     updateUI();
 
-    // Auto-save to Supabase
+    // 2. Fetch global currencies and votes
+    try {
+        const { data: curData, error: curError } = await supabaseClient.from('currencies').select('*');
+        if (curData) state.currencies = curData;
+
+        const { data: voteData, error: voteError } = await supabaseClient.from('community_votes').select('goldPerUsdNumber');
+        if (voteData) state.communityVotes = voteData.map(v => v.goldPerUsdNumber);
+    } catch (err) {
+        console.error('Failed to load global data:', err);
+    }
+
+    // 3. Refresh our own account if we have one
     if (state.account && state.account.id) {
         try {
-            const { error } = await supabaseClient
-                .from('app_state')
-                .upsert({ 
-                    account_id: state.account.id, 
-                    state_data: state 
-                }, { onConflict: 'account_id' });
+            const { data, error } = await supabaseClient
+                .from('accounts')
+                .select('*')
+                .eq('id', state.account.id)
+                .single();
             
-            if (error) {
-                console.warn('Supabase auto-save warning (Ensure table "app_state" exists with "account_id" and "state_data" columns):', error.message);
-            } else {
-                console.log('Auto-saved to Supabase successfully.');
+            if (data) {
+                state.account = data;
+                localStorage.setItem('cc_app_account', JSON.stringify(state.account));
             }
         } catch (err) {
-            console.error('Failed to auto-save to Supabase:', err);
+            console.error('Error fetching account from Supabase:', err);
         }
     }
+    
+    updateUI();
 }
 
 // Navigation Logic
@@ -141,15 +115,52 @@ document.getElementById('accountForm').addEventListener('submit', async (e) => {
     const generatedId = 'ID-' + Math.random().toString(36).substr(2, 9).toUpperCase();
     const avatarBase64 = await readFileAsDataURL(avatarFile);
 
-    state.account = {
+    const newAcc = {
         name,
         id: generatedId,
         avatarBase64
     };
 
-    saveState();
+    // Save to Supabase
+    const { error } = await supabaseClient.from('accounts').insert(newAcc);
+    if (error) {
+        alert('Failed to create account in database. ' + error.message);
+        return;
+    }
+
+    state.account = newAcc;
+    localStorage.setItem('cc_app_account', JSON.stringify(newAcc));
+    updateUI();
+    
     alert('Account created successfully!');
     showSection('currencySection');
+});
+
+// Login Logic
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const loginId = document.getElementById('loginId').value.trim();
+    const errorEl = document.getElementById('loginError');
+    
+    errorEl.classList.add('hidden');
+    
+    if (!loginId) return;
+
+    const { data, error } = await supabaseClient
+        .from('accounts')
+        .select('*')
+        .eq('id', loginId)
+        .single();
+        
+    if (error || !data) {
+        errorEl.classList.remove('hidden');
+    } else {
+        state.account = data;
+        localStorage.setItem('cc_app_account', JSON.stringify(data));
+        updateUI();
+        alert('Logged in successfully!');
+        showSection('currencySection');
+    }
 });
 
 // 2. Create Currency Logic
@@ -215,7 +226,7 @@ document.getElementById('currencyForm').addEventListener('submit', async (e) => 
         return;
     }
 
-    state.currencies.push({
+    const newCurrency = {
         id,
         name,
         icon: iconBase64,
@@ -223,12 +234,16 @@ document.getElementById('currencyForm').addEventListener('submit', async (e) => 
         creatorId: state.account.id,
         totalMinted: 0,
         totalGoldSpent: 0
-    });
-    
-    // Add to public immediately for smooth UI
-    publicCurrencies.push(state.currencies[state.currencies.length - 1]);
+    };
 
-    saveState();
+    const { error } = await supabaseClient.from('currencies').insert(newCurrency);
+    if (error) {
+        alert('Failed to save currency to database. ' + error.message);
+        return;
+    }
+
+    state.currencies.push(newCurrency);
+    updateUI();
     
     // Reset form
     document.getElementById('currencyForm').reset();
@@ -272,55 +287,26 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
 
         if (response.ok) {
             // Update currency stats
-            const currencyIndex = publicCurrencies.findIndex(c => c.id === currencyId);
+            const currencyIndex = state.currencies.findIndex(c => c.id === currencyId);
             if (currencyIndex !== -1) {
-                const pCurr = publicCurrencies[currencyIndex];
-                pCurr.totalMinted += 1; // 1 Custom Currency
-                pCurr.totalGoldSpent += goldAmount;
-
-                // Update creator's state in Supabase
-                const ownerStateRow = allAppStates.find(row => row.account_id === pCurr.creatorId);
-                if (ownerStateRow) {
-                    const ownerCurr = ownerStateRow.state_data.currencies.find(c => c.id === currencyId);
-                    if (ownerCurr) {
-                        ownerCurr.totalMinted = pCurr.totalMinted;
-                        ownerCurr.totalGoldSpent = pCurr.totalGoldSpent;
-                    }
+                const currency = state.currencies[currencyIndex];
+                currency.totalMinted += 1; // 1 Custom Currency
+                currency.totalGoldSpent += goldAmount;
+                
+                await supabaseClient.from('currencies')
+                    .update({ 
+                        totalMinted: currency.totalMinted, 
+                        totalGoldSpent: currency.totalGoldSpent 
+                    })
+                    .eq('id', currency.id);
                     
-                    // If the creator is the current user, update local state too
-                    if (pCurr.creatorId === state.account?.id) {
-                        const localCurr = state.currencies.find(c => c.id === currencyId);
-                        if (localCurr) {
-                            localCurr.totalMinted = pCurr.totalMinted;
-                            localCurr.totalGoldSpent = pCurr.totalGoldSpent;
-                        }
-                        saveState(); // Saves local state to localStorage and Supabase
-                    } else {
-                        // Save other user's state to Supabase
-                        supabaseClient.from('app_state').upsert({
-                            account_id: ownerStateRow.account_id,
-                            state_data: ownerStateRow.state_data
-                        }, { onConflict: 'account_id' }).then(({error}) => {
-                            if (error) console.error('Failed to update creator state:', error);
-                        });
-                    }
-                } else if (pCurr.creatorId === state.account?.id) {
-                    // Fallback if allAppStates doesn't have it but we do
-                    const localCurr = state.currencies.find(c => c.id === currencyId);
-                    if (localCurr) {
-                        localCurr.totalMinted = pCurr.totalMinted;
-                        localCurr.totalGoldSpent = pCurr.totalGoldSpent;
-                        saveState();
-                    }
-                }
-
                 updateUI();
 
                 statusEl.className = 'status-msg success';
-                statusEl.innerText = `Successfully minted 1 ${pCurr.name}!`;
+                statusEl.innerText = `Successfully minted 1 ${currency.name}!`;
 
                 // Show Acquired Animation
-                showAcquiredModal(pCurr);
+                showAcquiredModal(currency);
             }
         } else {
             throw new Error('API Response not OK');
@@ -348,13 +334,18 @@ window.closeAcquiredModal = function() {
 }
 
 // 4. Valuation Logic
-document.getElementById('voteForm').addEventListener('submit', (e) => {
+document.getElementById('voteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const gold = parseFloat(document.getElementById('goldPerUsd').value);
     if (!isNaN(gold) && gold > 0) {
+        const { error } = await supabaseClient.from('community_votes').insert({ goldPerUsdNumber: gold });
+        if (error) {
+            alert('Failed to submit vote. ' + error.message);
+            return;
+        }
+        
         state.communityVotes.push(gold);
-        publicVotes.push(gold);
-        saveState();
+        updateUI();
         document.getElementById('voteForm').reset();
     }
 });
@@ -375,25 +366,14 @@ function updateUI() {
         
         document.getElementById('createCurrencyBtn').disabled = false;
         document.getElementById('currAccountWarning').style.display = 'none';
-        
-        const canMint = publicCurrencies.length > 0;
-        document.getElementById('mintBtn').disabled = !canMint;
-        const mintWarning = document.getElementById('mintWarning');
-        if (!canMint) {
-            mintWarning.style.display = 'block';
-            mintWarning.innerText = 'No currencies available to mint.';
-        } else {
-            mintWarning.style.display = 'none';
-        }
+        document.getElementById('mintBtn').disabled = state.currencies.length === 0;
+        document.getElementById('mintWarning').style.display = state.currencies.length === 0 ? 'block' : 'none';
     } else {
         profileEl.classList.add('hidden');
         document.getElementById('createCurrencyBtn').disabled = true;
         document.getElementById('currAccountWarning').style.display = 'block';
         document.getElementById('mintBtn').disabled = true;
-        
-        const mintWarning = document.getElementById('mintWarning');
-        mintWarning.style.display = 'block';
-        mintWarning.innerText = 'You must create an account to mint.';
+        document.getElementById('mintWarning').style.display = 'block';
     }
 
     // Currencies List
@@ -410,7 +390,7 @@ function updateUI() {
     mintSelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
     valSelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
 
-    publicCurrencies.forEach(c => {
+    state.currencies.forEach(c => {
         // List item
         listEl.innerHTML += `
             <div class="currency-card">
@@ -430,13 +410,13 @@ function updateUI() {
 
     // Valuation stats
     let avgGoldPerUsd = 0;
-    if (publicVotes.length > 0) {
-        const sum = publicVotes.reduce((a, b) => a + b, 0);
-        avgGoldPerUsd = sum / publicVotes.length;
+    if (state.communityVotes.length > 0) {
+        const sum = state.communityVotes.reduce((a, b) => a + b, 0);
+        avgGoldPerUsd = sum / state.communityVotes.length;
     }
     
     document.getElementById('avgGoldPerUsd').innerText = avgGoldPerUsd.toFixed(2);
-    document.getElementById('voteCount').innerText = publicVotes.length;
+    document.getElementById('voteCount').innerText = state.communityVotes.length;
 
     if (valSelect.value) {
         updateValuationStats(valSelect.value, avgGoldPerUsd);
@@ -445,15 +425,15 @@ function updateUI() {
 
 function updateValuationStats(currencyId, avgGoldPerUsd = null) {
     if (avgGoldPerUsd === null) {
-        if (publicVotes.length > 0) {
-            const sum = publicVotes.reduce((a, b) => a + b, 0);
-            avgGoldPerUsd = sum / publicVotes.length;
+        if (state.communityVotes.length > 0) {
+            const sum = state.communityVotes.reduce((a, b) => a + b, 0);
+            avgGoldPerUsd = sum / state.communityVotes.length;
         } else {
             avgGoldPerUsd = 0;
         }
     }
 
-    const currency = publicCurrencies.find(c => c.id === currencyId);
+    const currency = state.currencies.find(c => c.id === currencyId);
     const statsBox = document.getElementById('currencyStats');
     
     if (currency) {
