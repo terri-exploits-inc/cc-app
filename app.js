@@ -5,6 +5,10 @@ let state = {
     communityVotes: [] // [ goldPerUsdNumber ]
 };
 
+let publicCurrencies = [];
+let publicVotes = [];
+let allAppStates = [];
+
 // Supabase Initialization
 const supabaseUrl = 'https://kscfzslfeetgxhtwwqjx.supabase.co';
 const supabaseKey = 'sb_publishable_5vTtJ0MCGJWu1i2-JSSeJg_pIQeKWLx';
@@ -16,32 +20,37 @@ async function loadState() {
     const saved = localStorage.getItem('cc_app_state');
     if (saved) {
         state = JSON.parse(saved);
+        publicCurrencies = [...state.currencies];
+        publicVotes = [...state.communityVotes];
         updateUI();
     }
 
-    // 2. Then, if we have an account, poll/load the latest state from Supabase
-    if (state.account && state.account.id) {
-        try {
-            const { data, error } = await supabaseClient
-                .from('app_state')
-                .select('state_data')
-                .eq('account_id', state.account.id)
-                .single();
+    // 2. Fetch ALL states from Supabase to aggregate public data
+    try {
+        const { data, error } = await supabaseClient.from('app_state').select('*');
+        if (!error && data) {
+            allAppStates = data;
             
-            if (error && error.code !== 'PGRST116') { // Ignore "no rows returned" error
-                console.warn('Failed to load state from Supabase:', error.message);
-            } else if (data && data.state_data) {
-                state = data.state_data;
-                // Update local storage with the latest data from cloud
-                localStorage.setItem('cc_app_state', JSON.stringify(state));
-                updateUI();
-                console.log('Successfully loaded latest state from Supabase.');
-            }
-        } catch (err) {
-            console.error('Error fetching state from Supabase:', err);
+            // Reconstruct public data
+            publicCurrencies = [];
+            publicVotes = [];
+            data.forEach(row => {
+                if (row.state_data.currencies) publicCurrencies.push(...row.state_data.currencies);
+                if (row.state_data.communityVotes) publicVotes.push(...row.state_data.communityVotes);
+                
+                // Also update local state if this is our account
+                if (state.account && row.account_id === state.account.id) {
+                    state = row.state_data;
+                    localStorage.setItem('cc_app_state', JSON.stringify(state));
+                }
+            });
+            updateUI();
+            console.log('Successfully loaded global state from Supabase.');
+        } else if (error) {
+            console.warn('Failed to load global state:', error.message);
         }
-    } else {
-        updateUI();
+    } catch (err) {
+        console.error('Error fetching state from Supabase:', err);
     }
 }
 
@@ -215,6 +224,9 @@ document.getElementById('currencyForm').addEventListener('submit', async (e) => 
         totalMinted: 0,
         totalGoldSpent: 0
     });
+    
+    // Add to public immediately for smooth UI
+    publicCurrencies.push(state.currencies[state.currencies.length - 1]);
 
     saveState();
     
@@ -260,17 +272,55 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
 
         if (response.ok) {
             // Update currency stats
-            const currencyIndex = state.currencies.findIndex(c => c.id === currencyId);
+            const currencyIndex = publicCurrencies.findIndex(c => c.id === currencyId);
             if (currencyIndex !== -1) {
-                state.currencies[currencyIndex].totalMinted += 1; // 1 Custom Currency
-                state.currencies[currencyIndex].totalGoldSpent += goldAmount;
-                saveState();
+                const pCurr = publicCurrencies[currencyIndex];
+                pCurr.totalMinted += 1; // 1 Custom Currency
+                pCurr.totalGoldSpent += goldAmount;
+
+                // Update creator's state in Supabase
+                const ownerStateRow = allAppStates.find(row => row.account_id === pCurr.creatorId);
+                if (ownerStateRow) {
+                    const ownerCurr = ownerStateRow.state_data.currencies.find(c => c.id === currencyId);
+                    if (ownerCurr) {
+                        ownerCurr.totalMinted = pCurr.totalMinted;
+                        ownerCurr.totalGoldSpent = pCurr.totalGoldSpent;
+                    }
+                    
+                    // If the creator is the current user, update local state too
+                    if (pCurr.creatorId === state.account?.id) {
+                        const localCurr = state.currencies.find(c => c.id === currencyId);
+                        if (localCurr) {
+                            localCurr.totalMinted = pCurr.totalMinted;
+                            localCurr.totalGoldSpent = pCurr.totalGoldSpent;
+                        }
+                        saveState(); // Saves local state to localStorage and Supabase
+                    } else {
+                        // Save other user's state to Supabase
+                        supabaseClient.from('app_state').upsert({
+                            account_id: ownerStateRow.account_id,
+                            state_data: ownerStateRow.state_data
+                        }, { onConflict: 'account_id' }).then(({error}) => {
+                            if (error) console.error('Failed to update creator state:', error);
+                        });
+                    }
+                } else if (pCurr.creatorId === state.account?.id) {
+                    // Fallback if allAppStates doesn't have it but we do
+                    const localCurr = state.currencies.find(c => c.id === currencyId);
+                    if (localCurr) {
+                        localCurr.totalMinted = pCurr.totalMinted;
+                        localCurr.totalGoldSpent = pCurr.totalGoldSpent;
+                        saveState();
+                    }
+                }
+
+                updateUI();
 
                 statusEl.className = 'status-msg success';
-                statusEl.innerText = `Successfully minted 1 ${state.currencies[currencyIndex].name}!`;
+                statusEl.innerText = `Successfully minted 1 ${pCurr.name}!`;
 
                 // Show Acquired Animation
-                showAcquiredModal(state.currencies[currencyIndex]);
+                showAcquiredModal(pCurr);
             }
         } else {
             throw new Error('API Response not OK');
@@ -303,6 +353,7 @@ document.getElementById('voteForm').addEventListener('submit', (e) => {
     const gold = parseFloat(document.getElementById('goldPerUsd').value);
     if (!isNaN(gold) && gold > 0) {
         state.communityVotes.push(gold);
+        publicVotes.push(gold);
         saveState();
         document.getElementById('voteForm').reset();
     }
@@ -324,14 +375,25 @@ function updateUI() {
         
         document.getElementById('createCurrencyBtn').disabled = false;
         document.getElementById('currAccountWarning').style.display = 'none';
-        document.getElementById('mintBtn').disabled = state.currencies.length === 0;
-        document.getElementById('mintWarning').style.display = state.currencies.length === 0 ? 'block' : 'none';
+        
+        const canMint = publicCurrencies.length > 0;
+        document.getElementById('mintBtn').disabled = !canMint;
+        const mintWarning = document.getElementById('mintWarning');
+        if (!canMint) {
+            mintWarning.style.display = 'block';
+            mintWarning.innerText = 'No currencies available to mint.';
+        } else {
+            mintWarning.style.display = 'none';
+        }
     } else {
         profileEl.classList.add('hidden');
         document.getElementById('createCurrencyBtn').disabled = true;
         document.getElementById('currAccountWarning').style.display = 'block';
         document.getElementById('mintBtn').disabled = true;
-        document.getElementById('mintWarning').style.display = 'block';
+        
+        const mintWarning = document.getElementById('mintWarning');
+        mintWarning.style.display = 'block';
+        mintWarning.innerText = 'You must create an account to mint.';
     }
 
     // Currencies List
@@ -348,7 +410,7 @@ function updateUI() {
     mintSelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
     valSelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
 
-    state.currencies.forEach(c => {
+    publicCurrencies.forEach(c => {
         // List item
         listEl.innerHTML += `
             <div class="currency-card">
@@ -368,13 +430,13 @@ function updateUI() {
 
     // Valuation stats
     let avgGoldPerUsd = 0;
-    if (state.communityVotes.length > 0) {
-        const sum = state.communityVotes.reduce((a, b) => a + b, 0);
-        avgGoldPerUsd = sum / state.communityVotes.length;
+    if (publicVotes.length > 0) {
+        const sum = publicVotes.reduce((a, b) => a + b, 0);
+        avgGoldPerUsd = sum / publicVotes.length;
     }
     
     document.getElementById('avgGoldPerUsd').innerText = avgGoldPerUsd.toFixed(2);
-    document.getElementById('voteCount').innerText = state.communityVotes.length;
+    document.getElementById('voteCount').innerText = publicVotes.length;
 
     if (valSelect.value) {
         updateValuationStats(valSelect.value, avgGoldPerUsd);
@@ -383,15 +445,15 @@ function updateUI() {
 
 function updateValuationStats(currencyId, avgGoldPerUsd = null) {
     if (avgGoldPerUsd === null) {
-        if (state.communityVotes.length > 0) {
-            const sum = state.communityVotes.reduce((a, b) => a + b, 0);
-            avgGoldPerUsd = sum / state.communityVotes.length;
+        if (publicVotes.length > 0) {
+            const sum = publicVotes.reduce((a, b) => a + b, 0);
+            avgGoldPerUsd = sum / publicVotes.length;
         } else {
             avgGoldPerUsd = 0;
         }
     }
 
-    const currency = state.currencies.find(c => c.id === currencyId);
+    const currency = publicCurrencies.find(c => c.id === currencyId);
     const statsBox = document.getElementById('currencyStats');
     
     if (currency) {
