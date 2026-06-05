@@ -29,6 +29,7 @@
                 <button class="nav-btn active" data-target="accountSection">Account</button>
                 <button class="nav-btn" data-target="currencySection">Create Currency</button>
                 <button class="nav-btn" data-target="mintSection">Minting</button>
+                <button class="nav-btn" data-target="tradeSection">Global Market</button>
                 <button class="nav-btn" data-target="valuationSection">Valuation</button>
             </nav>
         </aside>
@@ -153,6 +154,63 @@
                         <p id="mintWarning" class="warning-text">You must create an account and a currency first.</p>
                         <div id="mintStatus" class="status-msg"></div>
                     </form>
+                </div>
+            </section>
+
+            <!-- Trade Section (Global Market) -->
+            <section id="tradeSection" class="section">
+                <header>
+                    <h1>Global Market</h1>
+                    <p>Buy custom currencies from creators using Territorial.io Gold.</p>
+                </header>
+                
+                <div class="grid-2">
+                    <div class="card">
+                        <h3>Buy Currency</h3>
+                        <form id="buyForm">
+                            <div class="form-group">
+                                <label for="buyCurrencySelect">Select Currency</label>
+                                <select id="buyCurrencySelect" required>
+                                    <option value="" disabled selected>Select a currency...</option>
+                                </select>
+                            </div>
+                            
+                            <div id="buyInfo" class="stats-box mt-2 hidden">
+                                <div class="stat-row"><span>Creator Stock:</span> <strong id="buyCreatorStock">0</strong></div>
+                                <div class="stat-row"><span>Price (Gold per 1 CC):</span> <strong id="buyPricePerCc">0 Gold</strong></div>
+                            </div>
+
+                            <div class="api-credentials-box mt-4">
+                                <h4>Your Territorial.io API Credentials</h4>
+                                <div class="form-group">
+                                    <label for="buyApiAccount">Account Name</label>
+                                    <input type="text" id="buyApiAccount" required autocomplete="username" placeholder="Enter account name">
+                                </div>
+                                <div class="form-group">
+                                    <label for="buyApiPassword">Password</label>
+                                    <input type="password" id="buyApiPassword" required autocomplete="current-password" placeholder="Enter password">
+                                </div>
+                            </div>
+
+                            <div class="form-group mt-4">
+                                <label for="buyAmount">Amount of CC to Buy</label>
+                                <input type="number" id="buyAmount" min="1" required>
+                            </div>
+
+                            <div class="stats-box highlight mt-2 mb-4">
+                                <div class="stat-row"><span>Total Gold Cost:</span> <strong id="buyTotalCost">0 Gold</strong></div>
+                            </div>
+
+                            <button type="submit" class="btn-primary" id="buyBtn" disabled>Buy Currency</button>
+                            <div id="buyStatus" class="status-msg mt-2"></div>
+                        </form>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Your Wallet</h3>
+                        <p class="desc">Currencies you currently hold.</p>
+                        <div id="walletList" class="grid-list"></div>
+                    </div>
                 </div>
             </section>
 

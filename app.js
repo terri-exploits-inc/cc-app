@@ -1,8 +1,9 @@
 // State Management
 let state = {
-    account: null, // { name, id, avatarBase64 }
-    currencies: [], // [{ id, name, icon, animIcon, creatorId, totalMinted, totalGoldSpent }]
-    communityVotes: [] // [ goldPerUsdNumber ]
+    account: null, // { name, id, avatarbase64 }
+    currencies: [], // [{ id, name, icon, animicon, creatorid, totalminted, totalgoldspent }]
+    communityVotes: [], // [ goldperusdnumber ]
+    balances: [] // [{ account_id, currency_id, amount }]
 };
 
 // Supabase Initialization
@@ -28,6 +29,9 @@ async function loadState() {
 
         const { data: voteData, error: voteError } = await supabaseClient.from('community_votes').select('goldperusdnumber');
         if (voteData) state.communityVotes = voteData.map(v => v.goldperusdnumber);
+
+        const { data: balData, error: balError } = await supabaseClient.from('balances').select('*');
+        if (balData) state.balances = balData;
     } catch (err) {
         console.error('Failed to load global data:', err);
     }
@@ -316,6 +320,22 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
 
                 // Show Acquired Animation
                 showAcquiredModal(currency);
+
+                // Update Balances Table
+                let creatorBal = state.balances.find(b => b.account_id === currency.creatorid && b.currency_id === currency.id);
+                if (!creatorBal) {
+                    creatorBal = { account_id: currency.creatorid, currency_id: currency.id, amount: 0 };
+                    state.balances.push(creatorBal);
+                }
+                creatorBal.amount += 1; // Mints go to creator's stock
+
+                await supabaseClient.from('balances').upsert({
+                    account_id: creatorBal.account_id,
+                    currency_id: creatorBal.currency_id,
+                    amount: creatorBal.amount
+                });
+
+                // Update Wallet UI silently if possible, but updateUI covers it
             }
         } else {
             throw new Error('API Response not OK');
@@ -400,17 +420,23 @@ function updateUI() {
     const listEl = document.getElementById('currenciesList');
     const mintSelect = document.getElementById('mintCurrencySelect');
     const valSelect = document.getElementById('valCurrencySelect');
+    const buySelect = document.getElementById('buyCurrencySelect');
     
     listEl.innerHTML = '';
     
     // Preserve selections
     const currentMintVal = mintSelect.value;
     const currentValVal = valSelect.value;
+    const currentBuyVal = buySelect?.value;
 
     mintSelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
     valSelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
+    if (buySelect) buySelect.innerHTML = '<option value="" disabled selected>Select a currency...</option>';
 
-    state.currencies.forEach(c => {
+    // Your currencies
+    const myCurrencies = state.currencies.filter(c => state.account && c.creatorid === state.account.id);
+
+    myCurrencies.forEach(c => {
         // List item
         listEl.innerHTML += `
             <div class="currency-card">
@@ -422,11 +448,41 @@ function updateUI() {
         
         // Select options
         mintSelect.innerHTML += `<option value="${c.id}">${c.name} (${c.id})</option>`;
+    });
+
+    // All currencies
+    state.currencies.forEach(c => {
         valSelect.innerHTML += `<option value="${c.id}">${c.name} (${c.id})</option>`;
+        if (buySelect) buySelect.innerHTML += `<option value="${c.id}">${c.name} (${c.id})</option>`;
     });
 
     if (currentMintVal) mintSelect.value = currentMintVal;
     if (currentValVal) valSelect.value = currentValVal;
+    if (currentBuyVal && buySelect) buySelect.value = currentBuyVal;
+
+    // Wallet List
+    const walletEl = document.getElementById('walletList');
+    if (walletEl && state.account) {
+        walletEl.innerHTML = '';
+        const myBalances = state.balances.filter(b => b.account_id === state.account.id && b.amount > 0);
+        
+        if (myBalances.length === 0) {
+            walletEl.innerHTML = '<p class="desc">No currencies in wallet yet.</p>';
+        } else {
+            myBalances.forEach(b => {
+                const c = state.currencies.find(cur => cur.id === b.currency_id);
+                if (c) {
+                    walletEl.innerHTML += `
+                        <div class="currency-card">
+                            <img src="${c.icon}" alt="${c.name}">
+                            <h4>${c.name}</h4>
+                            <p>Balance: <strong>${b.amount}</strong></p>
+                        </div>
+                    `;
+                }
+            });
+        }
+    }
 
     // Valuation stats
     let avgGoldPerUsd = 0;
@@ -479,3 +535,108 @@ function updateValuationStats(currencyId, avgGoldPerUsd = null) {
 
 // Initial Load
 loadState();
+
+// 5. Buy Logic
+const buyCurrencySelect = document.getElementById('buyCurrencySelect');
+const buyAmount = document.getElementById('buyAmount');
+
+function updateBuyInfo() {
+    if (!buyCurrencySelect) return;
+    
+    const currencyId = buyCurrencySelect.value;
+    const amount = parseFloat(buyAmount.value) || 0;
+    const infoBox = document.getElementById('buyInfo');
+    
+    if (!currencyId) {
+        infoBox.classList.add('hidden');
+        document.getElementById('buyTotalCost').innerText = '0 Gold';
+        return;
+    }
+
+    const currency = state.currencies.find(c => c.id === currencyId);
+    const creatorStock = state.balances.find(b => b.account_id === currency.creatorid && b.currency_id === currency.id)?.amount || 0;
+    const pricePerCc = currency.totalminted > 0 ? currency.totalgoldspent / currency.totalminted : 0;
+    
+    infoBox.classList.remove('hidden');
+    document.getElementById('buyCreatorStock').innerText = creatorStock;
+    document.getElementById('buyPricePerCc').innerText = `${pricePerCc.toFixed(2)} Gold`;
+    
+    document.getElementById('buyTotalCost').innerText = `${(pricePerCc * amount).toFixed(2)} Gold`;
+    
+    const buyBtn = document.getElementById('buyBtn');
+    if (amount > 0 && amount <= creatorStock && pricePerCc > 0 && currency.creatorid !== state.account?.id) {
+        buyBtn.disabled = false;
+    } else {
+        buyBtn.disabled = true;
+    }
+}
+
+buyCurrencySelect?.addEventListener('change', updateBuyInfo);
+buyAmount?.addEventListener('input', updateBuyInfo);
+
+document.getElementById('buyForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const currencyId = buyCurrencySelect.value;
+    const amount = parseFloat(buyAmount.value);
+    const apiAccount = document.getElementById('buyApiAccount').value;
+    const apiPassword = document.getElementById('buyApiPassword').value;
+    
+    const currency = state.currencies.find(c => c.id === currencyId);
+    const pricePerCc = currency.totalminted > 0 ? currency.totalgoldspent / currency.totalminted : 0;
+    const totalCost = pricePerCc * amount;
+    
+    const statusEl = document.getElementById('buyStatus');
+    statusEl.className = 'status-msg loading';
+    statusEl.innerText = 'Processing purchase...';
+
+    try {
+        // Get creator's account name to use as target
+        const { data: creatorData } = await supabaseClient.from('accounts').select('name').eq('id', currency.creatorid).single();
+        if (!creatorData) throw new Error("Creator account not found");
+        
+        const targetName = creatorData.name;
+
+        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://territorial.io/api/gold/send');
+        const response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                account_name: apiAccount,
+                password: apiPassword,
+                target_account_name: targetName,
+                amount: totalCost
+            })
+        });
+
+        if (response.ok) {
+            // Update balances
+            let creatorBal = state.balances.find(b => b.account_id === currency.creatorid && b.currency_id === currency.id);
+            creatorBal.amount -= amount;
+
+            let buyerBal = state.balances.find(b => b.account_id === state.account.id && b.currency_id === currency.id);
+            if (!buyerBal) {
+                buyerBal = { account_id: state.account.id, currency_id: currency.id, amount: 0 };
+                state.balances.push(buyerBal);
+            }
+            buyerBal.amount += amount;
+
+            await supabaseClient.from('balances').upsert([
+                { account_id: creatorBal.account_id, currency_id: creatorBal.currency_id, amount: creatorBal.amount },
+                { account_id: buyerBal.account_id, currency_id: buyerBal.currency_id, amount: buyerBal.amount }
+            ]);
+            
+            updateUI();
+            updateBuyInfo();
+
+            statusEl.className = 'status-msg success';
+            statusEl.innerText = `Successfully bought ${amount} ${currency.name}!`;
+            showAcquiredModal(currency);
+        } else {
+            throw new Error('API Response not OK');
+        }
+    } catch (error) {
+        statusEl.className = 'status-msg error';
+        statusEl.innerText = 'Purchase failed. Check credentials, stock, or network.';
+        console.error(error);
+    }
+});
