@@ -26,8 +26,8 @@ async function loadState() {
         const { data: curData, error: curError } = await supabaseClient.from('currencies').select('*');
         if (curData) state.currencies = curData;
 
-        const { data: voteData, error: voteError } = await supabaseClient.from('community_votes').select('goldPerUsdNumber');
-        if (voteData) state.communityVotes = voteData.map(v => v.goldPerUsdNumber);
+        const { data: voteData, error: voteError } = await supabaseClient.from('community_votes').select('goldperusdnumber');
+        if (voteData) state.communityVotes = voteData.map(v => v.goldperusdnumber);
     } catch (err) {
         console.error('Failed to load global data:', err);
     }
@@ -118,7 +118,7 @@ document.getElementById('accountForm').addEventListener('submit', async (e) => {
     const newAcc = {
         name,
         id: generatedId,
-        avatarBase64
+        avatarbase64: avatarBase64 // Lowercase for postgres
     };
 
     // Save to Supabase
@@ -161,6 +161,15 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         alert('Logged in successfully!');
         showSection('currencySection');
     }
+});
+
+// Logout Logic
+document.getElementById('logoutBtn').addEventListener('click', () => {
+    state.account = null;
+    localStorage.removeItem('cc_app_account');
+    document.querySelector('#accountSection header p').innerText = 'Setup your profile to start creating and minting currencies.';
+    updateUI();
+    showSection('accountSection');
 });
 
 // 2. Create Currency Logic
@@ -230,10 +239,10 @@ document.getElementById('currencyForm').addEventListener('submit', async (e) => 
         id,
         name,
         icon: iconBase64,
-        animIcon: animIconBase64,
-        creatorId: state.account.id,
-        totalMinted: 0,
-        totalGoldSpent: 0
+        animicon: animIconBase64, // Lowercase for postgres
+        creatorid: state.account.id, // Lowercase for postgres
+        totalminted: 0,
+        totalgoldspent: 0
     };
 
     const { error } = await supabaseClient.from('currencies').insert(newCurrency);
@@ -290,13 +299,13 @@ document.getElementById('mintForm').addEventListener('submit', async (e) => {
             const currencyIndex = state.currencies.findIndex(c => c.id === currencyId);
             if (currencyIndex !== -1) {
                 const currency = state.currencies[currencyIndex];
-                currency.totalMinted += 1; // 1 Custom Currency
-                currency.totalGoldSpent += goldAmount;
+                currency.totalminted += 1; // 1 Custom Currency
+                currency.totalgoldspent += goldAmount;
                 
                 await supabaseClient.from('currencies')
                     .update({ 
-                        totalMinted: currency.totalMinted, 
-                        totalGoldSpent: currency.totalGoldSpent 
+                        totalminted: currency.totalminted, 
+                        totalgoldspent: currency.totalgoldspent 
                     })
                     .eq('id', currency.id);
                     
@@ -324,7 +333,7 @@ function showAcquiredModal(currency) {
     const icon = document.getElementById('acquiredIcon');
     
     title.innerText = `1 ${currency.name} Acquired!`;
-    icon.src = currency.animIcon || currency.icon; // Use animated if available
+    icon.src = currency.animicon || currency.animIcon || currency.icon; // Use animated if available
     
     modal.classList.remove('hidden');
 }
@@ -338,7 +347,7 @@ document.getElementById('voteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const gold = parseFloat(document.getElementById('goldPerUsd').value);
     if (!isNaN(gold) && gold > 0) {
-        const { error } = await supabaseClient.from('community_votes').insert({ goldPerUsdNumber: gold });
+        const { error } = await supabaseClient.from('community_votes').insert({ goldperusdnumber: gold });
         if (error) {
             alert('Failed to submit vote. ' + error.message);
             return;
@@ -362,19 +371,30 @@ function updateUI() {
         profileEl.classList.remove('hidden');
         document.getElementById('navName').innerText = state.account.name;
         document.getElementById('navId').innerText = state.account.id;
-        document.getElementById('navAvatar').src = state.account.avatarBase64;
+        document.getElementById('navAvatar').src = state.account.avatarbase64 || state.account.avatarBase64;
         
         document.getElementById('createCurrencyBtn').disabled = false;
         document.getElementById('currAccountWarning').style.display = 'none';
-        document.getElementById('mintBtn').disabled = state.currencies.length === 0;
-        document.getElementById('mintWarning').style.display = state.currencies.length === 0 ? 'block' : 'none';
+        
+        // Hide account creation/login forms if logged in
+        document.getElementById('accountForm').closest('.card').style.display = 'none';
+        document.getElementById('loginForm').closest('.card').style.display = 'none';
+        
+        // Change section header if logged in
+        document.querySelector('#accountSection header p').innerText = 'You are currently logged in.';
     } else {
         profileEl.classList.add('hidden');
         document.getElementById('createCurrencyBtn').disabled = true;
         document.getElementById('currAccountWarning').style.display = 'block';
-        document.getElementById('mintBtn').disabled = true;
-        document.getElementById('mintWarning').style.display = 'block';
+        
+        // Show account creation/login forms if logged out
+        document.getElementById('accountForm').closest('.card').style.display = 'block';
+        document.getElementById('loginForm').closest('.card').style.display = 'block';
     }
+
+    // Only allow minting if there are currencies available
+    document.getElementById('mintBtn').disabled = state.currencies.length === 0;
+    document.getElementById('mintWarning').style.display = state.currencies.length === 0 ? 'block' : 'none';
 
     // Currencies List
     const listEl = document.getElementById('currenciesList');
@@ -438,12 +458,12 @@ function updateValuationStats(currencyId, avgGoldPerUsd = null) {
     
     if (currency) {
         statsBox.classList.remove('hidden');
-        document.getElementById('statTotalMinted').innerText = currency.totalMinted;
-        document.getElementById('statTotalGold').innerText = currency.totalGoldSpent;
+        document.getElementById('statTotalMinted').innerText = currency.totalminted;
+        document.getElementById('statTotalGold').innerText = currency.totalgoldspent;
         
         let valueInGold = 0;
-        if (currency.totalMinted > 0) {
-            valueInGold = currency.totalGoldSpent / currency.totalMinted;
+        if (currency.totalminted > 0) {
+            valueInGold = currency.totalgoldspent / currency.totalminted;
         }
         document.getElementById('statGoldValue').innerText = `${valueInGold.toFixed(2)} Gold`;
         
